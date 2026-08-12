@@ -19,8 +19,10 @@ OSGB 文件结构（简化）：
 """
 
 import os
+import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
@@ -73,9 +75,33 @@ OBJ_PAGEDLOD = 0x30
 class OsgeBinaryParser:
     """OSGB 二进制文件解析器。"""
 
+    _osgconv_missing_warned = False  # 进程内只提示一次，避免每个文件重复输出
+    _osgconv_path_cache: Optional[str] = None  # 定位到的 osgconv 路径缓存（跨实例复用）
+
     def __init__(self, config: ConvertConfig, swap_xy: bool = False):
         self.config = config
         self.swap_xy = swap_xy
+
+    @staticmethod
+    def _find_osgconv() -> Optional[str]:
+        """定位 osgconv 可执行文件：优先系统 PATH，其次程序所在目录（含打包后的 exe）下的 osg_bin/。"""
+        if OsgeBinaryParser._osgconv_path_cache:
+            return OsgeBinaryParser._osgconv_path_cache
+
+        found = shutil.which("osgconv")
+        if not found:
+            if getattr(sys, "frozen", False):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            exe_name = "osgconv.exe" if os.name == "nt" else "osgconv"
+            bundled = os.path.join(base_dir, "osg_bin", exe_name)
+            if os.path.isfile(bundled):
+                found = bundled
+
+        if found:
+            OsgeBinaryParser._osgconv_path_cache = found
+        return found
 
     def parse_file(self, osgb_path: str) -> OsgeTileNode:
         """解析单个 OSGB 文件，返回瓦片节点树。
@@ -161,16 +187,22 @@ class OsgeBinaryParser:
 
     def _extract_dji_meshes_via_osgconv(self, osgb_path: str) -> list:
         """使用 osgconv 将 DJI OSGB 转换为 OBJ 并提取几何数据。"""
-        try:
-            # 检查 osgconv 是否可用
-            result = subprocess.run(
-                ["which", "osgconv"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                return []
+        # 优先系统 PATH，其次回退到仓库内置 osg_bin/ 目录（Windows 无 which 命令，
+        # 若用子进程检测会导致 FileNotFoundError 被静默吸收，故改用 shutil.which + 内置回退）
+        osgconv_path = self._find_osgconv()
+        if not osgconv_path:
+            if not OsgeBinaryParser._osgconv_missing_warned:
+                OsgeBinaryParser._osgconv_missing_warned = True
+                print(
+                    "[警告] 未找到 osgconv 工具，DJI Terra 格式的几何数据无法提取（将生成空瓦片）。"
+                    "请安装 OpenSceneGraph 并将 osgconv 加入 PATH："
+                    "Windows 可从 https://github.com/openscenegraph/OpenSceneGraph 或 vcpkg 获取，"
+                    "Linux 可执行 apt install openscenegraph。",
+                    file=sys.stderr,
+                )
+            return []
 
+        try:
             # 读取原始 OSGB 文件数据（用于提取嵌入纹理）
             with open(osgb_path, "rb") as f:
                 osgb_data = f.read()
@@ -182,7 +214,7 @@ class OsgeBinaryParser:
             with tempfile.TemporaryDirectory() as tmpdir:
                 obj_path = os.path.join(tmpdir, "tile.obj")
                 result = subprocess.run(
-                    ["osgconv", osgb_path, obj_path],
+                    [osgconv_path, osgb_path, obj_path],
                     capture_output=True,
                     text=True,
                     timeout=30,

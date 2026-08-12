@@ -1,7 +1,8 @@
 """OSGB 目录结构检测与路径适配。
 
 支持两种主流 OSGB 数据结构：
-- ContextCapture：嵌套 Base/ 目录，根文件为 Data.osgb，子文件带 _Lxx_ 层级标识
+- ContextCapture：嵌套子目录（Base/ 或任意命名的分幅目录，如 DJI Terra 多分块导出的 Block*/），
+  子文件带 _Lxx_ 层级标识，根文件通常为 Data.osgb/tileset.osgb，也可回退为目录下唯一的 .osgb 文件
 - DJI Terra：扁平数字命名目录，根文件为最短文件名，无层级标识
 """
 
@@ -83,7 +84,7 @@ def detect_structure(input_dir: str) -> StructureType:
     检测策略：
     1. 存在 Data.osgb 或 tileset.osgb → ContextCapture
     2. 存在 Base/ 子目录 → ContextCapture
-    3. 存在 Tile_+xxx_+xxx 分幅子目录（内含 _L 层级文件）→ ContextCapture
+    3. 存在任意命名的分幅子目录（内含 _L 层级文件，如 Tile_xxx/ 或 DJI Terra 多分块的 Block*/）→ ContextCapture
     4. Data/ 下有单个数字命名子目录，内含纯数字 .osgb 文件 → DJI Terra
     5. 以上均不匹配 → 抛出异常
     """
@@ -98,10 +99,10 @@ def detect_structure(input_dir: str) -> StructureType:
     if os.path.isdir(os.path.join(data_dir, "Base")):
         return StructureType.CONTEXT_CAPTURE
 
-    # ContextCapture: 存在 Tile_+xxx_+xxx 分幅子目录
+    # ContextCapture: 存在任意命名的分幅子目录（不限 Tile_ 前缀，涵盖 DJI Terra 多分块 Block*/ 导出）
     for entry in os.listdir(data_dir):
         entry_path = os.path.join(data_dir, entry)
-        if os.path.isdir(entry_path) and entry.startswith("Tile_"):
+        if os.path.isdir(entry_path):
             # 检查子目录中是否有带 _L 层级标识的 .osgb 文件
             for f in os.listdir(entry_path):
                 if f.lower().endswith(".osgb") and _LEVEL_PATTERN.search(f):

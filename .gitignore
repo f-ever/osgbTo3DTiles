@@ -13,6 +13,9 @@ dist-ssr
 osgb2tiles/__pycache__
 tests/__pycache__
 venv
+osg_bin
+build
+dist
 *.local
 
 # Editor directories and files

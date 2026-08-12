@@ -53,6 +53,18 @@ class TestDetectStructure:
             except ValueError:
                 pass
 
+    def test_context_capture_arbitrary_block_subdir(self):
+        """DJI Terra 多分块导出：分幅子目录名不限 Tile_ 前缀（如 BlockRBBA）。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "Data")
+            os.makedirs(data_dir)
+            open(os.path.join(data_dir, "Block.osgb"), "w").close()
+            block_dir = os.path.join(data_dir, "BlockRBBA")
+            os.makedirs(block_dir)
+            open(os.path.join(block_dir, "BlockRBBA.osgb"), "w").close()
+            open(os.path.join(block_dir, "BlockRBBA_L14_1.osgb"), "w").close()
+            assert detect_structure(tmpdir) == StructureType.CONTEXT_CAPTURE
+
 
 class TestFindDataDir:
     def test_osgb_in_input_dir(self):
@@ -105,6 +117,19 @@ class TestFindRootOsgb:
             open(os.path.join(numeric_dir, "31434152634042.osgb"), "w").close()
             result = find_root_osgb(tmpdir, StructureType.DJI_TERRA)
             assert result.endswith("314341526340.osgb")
+
+    def test_context_capture_arbitrary_root_name_fallback(self):
+        """根文件非标准命名（如 Block.osgb）时，回退到目录下唯一的 .osgb 文件。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "Data")
+            os.makedirs(data_dir)
+            open(os.path.join(data_dir, "Block.osgb"), "w").close()
+            block_dir = os.path.join(data_dir, "BlockRBBA")
+            os.makedirs(block_dir)
+            open(os.path.join(block_dir, "BlockRBBA.osgb"), "w").close()
+            open(os.path.join(block_dir, "BlockRBBA_L14_1.osgb"), "w").close()
+            result = find_root_osgb(tmpdir, StructureType.CONTEXT_CAPTURE)
+            assert result.endswith("Block.osgb")
 
 
 class TestResolvePagelodPath:
